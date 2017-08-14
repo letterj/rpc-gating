@@ -1,0 +1,104 @@
+- job:
+    name: RE-Release
+    project-type: workflow
+    concurrent: false
+    properties:
+      - build-discarder:
+          num-to-keep: 30
+    parameters:
+      - rpc_gating_params
+      - string:
+          name: RELEASE_VERSION
+          description: |
+            The version that will be tagged by this job
+      - string:
+          name: NEXT_VERSION
+          description: |
+            The version that will be released after the next stabilisation
+            period.
+      - string:
+          name: MAINLINE_BRANCH
+          description: The MAINLINE_BRANCH branch to work from
+      - string:
+          name: REPO_URL
+          description: |
+            URL of the working repo. Used to pull and push, so should be
+            git@github.com:owner/repo. Key for
+            https://github.com/rpc-jenkins-svc is used for pushing.
+      - string:
+          name: MAIL_TO
+          description: Recipient of notification email
+      - string:
+          name: MAIL_SUBJECT
+          description: Subject of notification email
+          default: auto
+      - string:
+          name: MAIL_BODY
+          description: Body of notification email
+          default: auto
+      - string:
+          name: STAGES
+          description: |
+            Items to run. Options:
+              Tag,
+              Update RC Branch,
+              Mail Notification
+          default: >-
+            Tag,
+            Update RC Branch
+    dsl: |
+      stage("Check Parameters"){
+        if (env.REPO_URL == "" || env.MAINLINE_BRANCH == ""){
+          throw new Exception(
+            "REPO_URL and MAINLINE_BRANCH parameters are required.")
+        }
+        if (!(REPO_URL ==~ /git@github.com:[\w-_]*\/[\w-_]*/)){
+          throw new Exception(
+            "Repo url should be of the form git@github.com:owner/repo")
+        }
+        print ("Parameter check successful.")
+      }
+      library "rpc-gating@${RPC_GATING_BRANCH}"
+      common.shared_slave(){
+        rc = "${MAINLINE_BRANCH}-rc"
+        stage("Configure Git"){
+          common.configure_git()
+        }
+        stage("Clone"){
+          common.clone_with_pr_refs(REPO_URL, MAINLINE_BRANCH)
+        }
+        common.conditionalStage(
+          stage_name: "Tag",
+          stage: {
+            release.tag(RELEASE_VERSION, rc)
+          })
+        common.conditionalStage(
+          stage_name: "Update RC Branch",
+          stage: {
+            release.update_rc_branch(REPO_URL, MAINLINE_BRANCH, rc)
+          })
+        common.conditionalStage(
+          stage_name: "Mail Notification",
+          stage: {
+            // URL Forms:
+            // https://user:pass@github.com/rcbops/rpc-openstack
+            // git@github.com:rcbops/rpc-openstack
+            repo_short = env.REPO_URL.replaceAll(/^.*github.com./,"").replaceAll(/.git$/,"")
+            if (env.MAIL_SUBJECT=="auto"){
+              env.MAIL_SUBJECT="${RELEASE_VERSION} of ${repo_short} Released"
+            }
+            if(env.MAIL_BODY=="auto"){
+              env.MAIL_BODY="The RPC team are pleased to announce that" \
+                            +" ${repo_short} version ${RELEASE_VERSION}" \
+                            +" is now available."
+            }
+            print("Sending notification mail To: ${env.MAIL_TO}, "
+                  +"Subject: ${env.MAIL_SUBJECT}, Body: ${env.MAIL_BODY}")
+            mail(
+              to: env.MAIL_TO,
+              subject: env.MAIL_SUBJECT,
+              body: env.MAIL_BODY
+            )
+          }
+        )
+      }
