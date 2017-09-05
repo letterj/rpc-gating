@@ -71,5 +71,37 @@ void add_issue_url_to_pr(String upstream="upstream"){
   return null
 }
 
+/* Toggle whether admins can override branch protection
+This is used to allow jenkins to force push when
+resetting rc branches
+state = "True" (enabled)
+      or "False" (disabled)
+*/
+def set_branch_protection_admin_enforcement(
+    String org="rcbops",
+    String repo,
+    String branch,
+    String state){
+  print "Setting branch protection admin enforcement to ${state} for ${org}/${repo}/${branch}"
+  withCredentials([
+    string(
+      credentialsId: 'rpc-jenkins-svc-github-pat',
+      variable: 'pat'
+    )
+  ]){
+    sh """#!/bin/bash -xe
+      cd ${env.WORKSPACE}
+      set +x; . .venv/bin/activate; set -x
+      python rpc-gating/scripts/ghutils.py\
+        --org '$org'\
+        --repo '$repo'\
+        --pat '$pat'\
+        set_admin_enforcement\
+        --branch '$branch'\
+        --admin-enforcement-enabled '$state'
+    """
+  }
+}
+
 
 return this;

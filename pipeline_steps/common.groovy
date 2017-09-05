@@ -687,4 +687,18 @@ void internal_slave(body){
   use_node("CentOS", body)
 }
 
+@NonCPS
+Map parse_github_repo_url(String repo_url){
+  // https://user:pass@github.com/rcbops/rpc-openstack
+  // git@github.com:rcbops/rpc-openstack
+
+  // org/repo
+  owner_repo_name = repo_url.replaceAll(/^.*github.com./,"").replaceAll(/.git$/,"")
+  match = (owner_repo_name =~ /^([^\/]*)\/(.*)/)[0]
+  org = match[1]
+  repo = match[2]
+  return ['owner_repo': owner_repo_name,
+          'org': org, 'repo': repo]
+}
+
 return this

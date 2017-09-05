@@ -5,6 +5,7 @@
 
 import click
 import github3
+import json
 
 
 @click.group()
@@ -90,6 +91,84 @@ def add_issue_url_to_pr(repo, pull_request_number, issue_key):
             click.echo("Pull request updated with issue reference.")
         else:
             raise Exception("There was a failure updating the pull request.")
+
+
+def branch_api_request(
+        repo,
+        branch,
+        method,
+        postfix="/enforce_admins"):
+    """Make Requests to the github branch protection api
+        Not supported by github3.py yet (6/9/2017)"""
+    url = "{branch_url}/protection{postfix}".format(
+        branch_url=repo.branches_urlt.expand(branch=branch),
+        postfix=postfix
+    )
+    # Branch protection api is in preview and requires a specific content type
+    response = repo._session.request(
+        method, url,
+        headers={'Accept': 'application/vnd.github.loki-preview+json'})
+    return response
+
+
+@cli.command()
+@click.pass_context
+@click.option(
+    '--branch',
+    required=True,
+    help="Branch to set branch protection for."
+)
+@click.option(
+    '--admin-enforcement-enabled',
+    help="Enable or disable branch protection parameters for admins",
+    type=click.Choice(["True", "False"]),
+    required=True
+)
+def set_admin_enforcement(ctx, branch, admin_enforcement_enabled):
+    repo = ctx.obj
+    if admin_enforcement_enabled == "True":
+        method = "POST"
+    else:
+        method = "DELETE"
+
+    if ctx.invoke(get_branch_protection, branch=branch):
+        print ("Setting branch protection admin"
+               " encforcement to {} ".format(admin_enforcement_enabled))
+        branch_api_request(repo, branch, method).raise_for_status()
+        ctx.invoke(get_admin_enforcement, branch=branch)
+    else:
+        print ("Not modifying branch protection admin enforcement")
+
+
+@cli.command()
+@click.pass_obj
+@click.option(
+    '--branch',
+    required=True,
+    help="Branch to query"
+)
+def get_admin_enforcement(repo, branch):
+    response = branch_api_request(repo, branch, 'GET')
+    response.raise_for_status()
+    print response.json()
+
+
+@cli.command()
+@click.pass_obj
+@click.option(
+    '--branch',
+    required=True,
+    help="Branch to query"
+)
+def get_branch_protection(repo, branch):
+    response = branch_api_request(repo, branch, 'GET', postfix="")
+    if response.status_code == 200:
+        print "Branch Protection Enabled"
+        print json.dumps(response.json(), indent=4)
+        return True
+    else:
+        print "Branch Protection Disabled"
+        return False
 
 
 if __name__ == "__main__":

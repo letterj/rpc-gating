@@ -12,11 +12,6 @@
           description: |
             The version that will be tagged by this job
       - string:
-          name: NEXT_VERSION
-          description: |
-            The version that will be released after the next stabilisation
-            period.
-      - string:
           name: MAINLINE_BRANCH
           description: The MAINLINE_BRANCH branch to work from
       - string:
@@ -81,9 +76,7 @@
           stage_name: "Mail Notification",
           stage: {
             // URL Forms:
-            // https://user:pass@github.com/rcbops/rpc-openstack
-            // git@github.com:rcbops/rpc-openstack
-            repo_short = env.REPO_URL.replaceAll(/^.*github.com./,"").replaceAll(/.git$/,"")
+            repo_short = common.parse_github_repo_url(env.REPO_URL)['owner_repo']
             if (env.MAIL_SUBJECT=="auto"){
               env.MAIL_SUBJECT="${RELEASE_VERSION} of ${repo_short} Released"
             }
