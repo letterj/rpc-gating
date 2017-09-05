@@ -104,7 +104,6 @@ def prepare() {
               "OVERRIDE_SOURCES=true",
               "DEVICE_NAME=vda",
               "DEFAULT_NETWORK=eth0",
-              "VM_DISK_SIZE=252000",
               "DEFAULT_IMAGE=${env.DEFAULT_IMAGE}",
               "DEFAULT_KERNEL=${env.DEFAULT_KERNEL}",
               "OSA_BRANCH=${osa_commit}",
