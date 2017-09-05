@@ -38,9 +38,9 @@
           DEPLOY_TELEGRAF: "yes"
     image:
       - xenial:
-          DEFAULT_IMAGE: "16.04.2"
+          DEFAULT_IMAGE: "ubuntu-16.04-amd64"
       - trusty:
-          DEFAULT_IMAGE: "14.04.5"
+          DEFAULT_IMAGE: "ubuntu-14.04-amd64"
     action:
       - deploy:
           ACTION_STAGES: >-
