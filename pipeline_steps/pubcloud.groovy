@@ -23,6 +23,32 @@ def cleanup(Map args){
 } //call
 
 
+/* Save image of public cloud instances
+ */
+def save(Map args){
+  withCredentials(common.get_cloud_creds()){
+
+    dir("rpc-gating/playbooks"){
+      pyrax_cfg = common.writePyraxCfg(
+        username: env.PUBCLOUD_USERNAME,
+        api_key: env.PUBCLOUD_API_KEY
+      )
+      withEnv(["RAX_CREDS_FILE=${pyrax_cfg}"]){
+        common.venvPlaybook(
+          playbooks: ['save_pubcloud.yml'],
+          args: [
+            "-vvv",
+            "-i inventory",
+            "--private-key=\"${env.JENKINS_SSH_PRIVKEY}\"",
+          ],
+          vars: args
+        )
+      } // withEnv
+    } // directory
+  } //withCredentials
+} //save
+
+
 /* Create public cloud node
  * Params:
  *  - region: Rax region to build in
@@ -77,6 +103,14 @@ def delPubCloudSlave(Map args){
     step_name: "Pause",
     step: {
       input message: "Continue?"
+    }
+  )
+  common.conditionalStep(
+    step_name: 'Save Slave',
+    step: {
+      args.server_name = args.instance_name
+      add_instance_env_params_to_args(args)
+      save (args)
     }
   )
   common.conditionalStep(

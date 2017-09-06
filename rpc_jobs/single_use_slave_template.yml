@@ -23,6 +23,7 @@
               Connect Slave
               Pause (use to hold instance for investigation before cleanup)
               Cleanup
+              Save Slave (use to save the state as an image)
               Destroy Slave
     dsl: |
       library "rpc-gating@${RPC_GATING_BRANCH}"

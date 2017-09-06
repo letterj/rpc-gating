@@ -43,6 +43,7 @@ def connect(Map args){
             common.venvPlaybook(
               playbooks: ["setup_jenkins_slave.yml"],
               args: [
+                "-vvv",
                 "-i ${args.inventory}",
                 "--limit job_nodes",
                 "--extra-vars='ansible_port=${args.port}'",

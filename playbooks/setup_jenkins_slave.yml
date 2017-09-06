@@ -14,6 +14,13 @@
     jenkins_node_labels: "{{ lookup('env', 'JENKINS_NODE_LABELS')|default('single_use_slave', true) }}"
     jenkins_node_executors: "{{ lookup('env', 'JENKINS_NODE_EXECUTORS')|default('2', true) }}"
     jenkins_ssh_port: "{{ ansible_port | default(22, true) }}"
+  pre_tasks:
+    - name: Output the primary apt sources
+      shell: "cat /etc/apt/sources.list"
+    - name: List the secondary apt sources
+      shell: "ls -al /etc/apt/sources.list.d/"
+    - name: Output the content of the secondary apt sources
+      shell: "cat /etc/apt/sources.list.d/*.list || true"
   roles:
     - role: willshersystems.sshd
       sshd:
@@ -25,7 +32,7 @@
         GatewayPorts: "no"
         ClientAliveInterval: 15
         Compression: "yes"
-  tasks:
+  post_tasks:
     - name: Install apt packages
       apt:
         pkg: "{{ item }}"

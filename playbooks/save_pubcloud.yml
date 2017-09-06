@@ -1,0 +1,28 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars:
+    region: "{{ lookup('env', 'REGION') }}"
+    script_path: "{{ lookup('env', 'WORKSPACE') }}/rpc-gating/scripts"
+    pyrax_creds_file: "{{ lookup('env', 'RAX_CREDS_FILE') }}"
+    image_name: "{{ lookup('env', 'SAVE_IMAGE_NAME') }}"
+  tasks:
+
+    - name: Fail when no value is provided for SAVE_IMAGE_NAME
+      fail:
+       msg: "The SAVE_IMAGE_NAME environment variable must be set."
+      when: image_name == ""
+
+    - name: Get instance info
+      rax_facts:
+        name: "{{ instance_name }}"
+        region: "{{ region }}"
+      register: get_rax_facts
+
+    - name: Save public cloud instance
+      command: >-
+        {{ script_path }}/rax-create-image.py --credentialsfile {{ pyrax_creds_file }}
+                                              --cloudregion {{ region }}
+                                              --serveruuid {{ rax_id }}
+                                              --imagename '{{ image_name }}'
