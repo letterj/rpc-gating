@@ -132,10 +132,10 @@ def prepare() {
       sh """/bin/bash
       echo "multi_node_aio_prepare.prepare/Prepare RPC Configs"
       set -xe
-      scp -r -o StrictHostKeyChecking=no /opt/rpc-openstack deploy1:/opt/
-      scp -o StrictHostKeyChecking=no ${env.WORKSPACE}/user_zzz_gating_variables.yml deploy1:/etc/openstack_deploy/user_zzz_gating_variables.yml
+      scp -r -o StrictHostKeyChecking=no /opt/rpc-openstack infra1:/opt/
+      scp -o StrictHostKeyChecking=no ${env.WORKSPACE}/user_zzz_gating_variables.yml infra1:/etc/openstack_deploy/user_zzz_gating_variables.yml
 
-      ssh -T -o StrictHostKeyChecking=no deploy1 << 'EOF'
+      ssh -T -o StrictHostKeyChecking=no infra1 << 'EOF'
       set -xe
       sudo cp /etc/openstack_deploy/user_variables.yml /etc/openstack_deploy/user_variables.yml.bak
       sudo cp -R /opt/rpc-openstack/openstack-ansible/etc/openstack_deploy /etc
