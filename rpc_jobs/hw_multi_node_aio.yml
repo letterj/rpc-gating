@@ -123,7 +123,7 @@
               multi_node_aio_prepare.prepare()
             }}
 
-            deploy_node = "${{INSTANCE_NAME}}-deploy-vm"
+            deploy_node = "${{INSTANCE_NAME}}-infra1-vm"
             multi_node_aio_prepare.connect_deploy_node(deploy_node, instance_ip)
 
            common.use_node(deploy_node) {{
