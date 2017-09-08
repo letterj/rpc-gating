@@ -71,18 +71,51 @@ void add_issue_url_to_pr(String upstream="upstream"){
   return null
 }
 
-/* Toggle whether admins can override branch protection
-This is used to allow jenkins to force push when
-resetting rc branches
-state = "True" (enabled)
-      or "False" (disabled)
-*/
-def set_branch_protection_admin_enforcement(
+// Reset rc branch to head of mainline ready for the next development cycle
+def update_rc_branch(
     String org="rcbops",
     String repo,
-    String branch,
-    String state){
-  print "Setting branch protection admin enforcement to ${state} for ${org}/${repo}/${branch}"
+    String mainline,
+    String rc){
+  print "Resetting ${rc} to head of ${mainline}"
+  withCredentials([
+    string(
+      credentialsId: 'rpc-jenkins-svc-github-pat',
+      variable: 'pat'
+    )
+  ]){
+    Integer ret_code = sh (returnStatus: true, script: """#!/bin/bash -xe
+      cd ${env.WORKSPACE}
+      set +x; . .venv/bin/activate; set -x
+      python rpc-gating/scripts/ghutils.py\
+        --debug \
+        --org '$org'\
+        --repo '$repo'\
+        --pat '$pat'\
+        update_rc_branch\
+        --mainline '$mainline'\
+        --rc '$rc'
+    """)
+    if (ret_code == 5){
+      slackSend (
+        channel: '#rpc-releng',
+        color: 'warning',
+        message: "Unprotected rc branch found: ${repo}/${rc}")
+    }else if(ret_code != 0){
+      throw new Exception("Failed to update rc branch ${repo}/${rc}."
+                          +" Return Code: ${ret_code}")
+    }
+  }
+}
+
+// Create github release and tag
+def create_release(
+    String org="rcbops",
+    String repo,
+    String version,
+    String ref,
+    String reno_body_file){
+  print "Creating github release ${version} for ${repo}@${ref}"
   withCredentials([
     string(
       credentialsId: 'rpc-jenkins-svc-github-pat',
@@ -93,15 +126,17 @@ def set_branch_protection_admin_enforcement(
       cd ${env.WORKSPACE}
       set +x; . .venv/bin/activate; set -x
       python rpc-gating/scripts/ghutils.py\
+        --debug \
         --org '$org'\
         --repo '$repo'\
         --pat '$pat'\
-        set_admin_enforcement\
-        --branch '$branch'\
-        --admin-enforcement-enabled '$state'
+        create_release\
+        --version '$version'\
+        --ref '$ref' \
+        --body reno_body_file
+      echo \$?
     """
   }
 }
-
 
 return this;

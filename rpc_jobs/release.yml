@@ -12,50 +12,54 @@
           description: |
             The version that will be tagged by this job
       - string:
+          name: RELEASE_NOTES
+          description: |
+            Text that will become the body the Github release and the mail
+            Notificaiton. This param can contain the path to a script, in
+            which case the output of that script will be used as the release notes.
+            If the text from this param does not match any path in the repo, then
+            the supplied text will be used as the release notes.
+      - validating-string:
           name: MAINLINE_BRANCH
           description: The MAINLINE_BRANCH branch to work from
-      - string:
+          regex: .+
+          msg: MAINLINE_BRANCH is required
+      - validating-string:
           name: REPO_URL
           description: |
             URL of the working repo. Used to pull and push, so should be
             git@github.com:owner/repo. Key for
             https://github.com/rpc-jenkins-svc is used for pushing.
+          regex: git@github.com:[\w-_]*\/[\w-_]*
+          msg: "Repo url must be a ssh url (eg git@github.com:org/repo)"
       - string:
           name: MAIL_TO
           description: Recipient of notification email
       - string:
           name: MAIL_SUBJECT
           description: Subject of notification email
-          default: auto
-      - string:
-          name: MAIL_BODY
-          description: Body of notification email
-          default: auto
+          default: ${RELEASE_VERSION} of %repo_short% Released
       - string:
           name: STAGES
           description: |
             Items to run. Options:
-              Tag,
+              Release Notes,
+              Github Release,
               Update RC Branch,
               Mail Notification
           default: >-
-            Tag,
-            Update RC Branch
+            Release Notes,
+            Github Release,
+            Update RC Branch,
+            Mail Notification
     dsl: |
-      stage("Check Parameters"){
-        if (env.REPO_URL == "" || env.MAINLINE_BRANCH == ""){
-          throw new Exception(
-            "REPO_URL and MAINLINE_BRANCH parameters are required.")
-        }
-        if (!(REPO_URL ==~ /git@github.com:[\w-_]*\/[\w-_]*/)){
-          throw new Exception(
-            "Repo url should be of the form git@github.com:owner/repo")
-        }
-        print ("Parameter check successful.")
-      }
       library "rpc-gating@${RPC_GATING_BRANCH}"
       common.shared_slave(){
-        rc = "${MAINLINE_BRANCH}-rc"
+        String rc = "${MAINLINE_BRANCH}-rc"
+        Map repo_dict = common.parse_github_repo_url(repo_url)
+        String repo_short = repo_dict['owner_repo']
+        env.MAIL_SUBJECT = env.MAIL_SUBJECT.replaceAll("%repo_short%", repo_short)
+
         stage("Configure Git"){
           common.configure_git()
         }
@@ -63,34 +67,48 @@
           common.clone_with_pr_refs(REPO_URL, MAINLINE_BRANCH)
         }
         common.conditionalStage(
-          stage_name: "Tag",
+          stage_name: "Release Notes",
           stage: {
-            release.tag(RELEASE_VERSION, rc)
+              // either execute RELEASE_NOTES script, or write the contents to
+              // reno_body_file
+              sh """#!/bin/bash -xe
+                if [[ -x "\${RELEASE_NOTES}" ]]
+                then
+                  echo "Executing \${RELEASE_NOTES} to generate release notes."
+                  ./\${RELEASE_NOTES} > reno_body_file
+                else
+                  echo "\${RELEASE_NOTES}" > reno_body_file
+                fi
+                echo "Release Notes: \$(cat reno_body_file)"
+              """
+            }
+        )
+        common.conditionalStage(
+          stage_name: "Github Release",
+          stage: {
+            github.create_release(repo_dict['org'], repo_dict['repo'],
+                                  RELEASE_VERSION, rc, "reno_body_file")
           })
         common.conditionalStage(
           stage_name: "Update RC Branch",
           stage: {
-            release.update_rc_branch(REPO_URL, MAINLINE_BRANCH, rc)
+            github.update_rc_branch(
+              repo_dict['org'],
+              repo_dict['repo'],
+              MAINLINE_BRANCH,
+              rc
+            )
           })
         common.conditionalStage(
           stage_name: "Mail Notification",
           stage: {
-            // URL Forms:
-            repo_short = common.parse_github_repo_url(env.REPO_URL)['owner_repo']
-            if (env.MAIL_SUBJECT=="auto"){
-              env.MAIL_SUBJECT="${RELEASE_VERSION} of ${repo_short} Released"
-            }
-            if(env.MAIL_BODY=="auto"){
-              env.MAIL_BODY="The RPC team are pleased to announce that" \
-                            +" ${repo_short} version ${RELEASE_VERSION}" \
-                            +" is now available."
-            }
+            String MAIL_BODY = readFile "reno_body_file"
             print("Sending notification mail To: ${env.MAIL_TO}, "
-                  +"Subject: ${env.MAIL_SUBJECT}, Body: ${env.MAIL_BODY}")
+                  +"Subject: ${env.MAIL_SUBJECT}, Body: ${MAIL_BODY}")
             mail(
               to: env.MAIL_TO,
               subject: env.MAIL_SUBJECT,
-              body: env.MAIL_BODY
+              body: MAIL_BODY
             )
           }
         )

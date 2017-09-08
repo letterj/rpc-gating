@@ -6,6 +6,9 @@
 import click
 import github3
 import json
+import logging
+
+logger = logging.getLogger("ghutils")
 
 
 @click.group()
@@ -25,10 +28,17 @@ import json
     help="Github Personal Access Token",
     required=True,
 )
-def cli(ctxt, org, repo, pat):
+@click.option(
+    '--debug/--no-debug'
+)
+def cli(ctxt, org, repo, pat, debug):
     gh = github3.login(token=pat)
     repo_ = gh.repository(org, repo)
     ctxt.obj = repo_
+    level = logging.WARNING
+    if debug:
+        level = logging.DEBUG
+    logging.basicConfig(level=level)
 
 
 @cli.command()
@@ -93,13 +103,11 @@ def add_issue_url_to_pr(repo, pull_request_number, issue_key):
             raise Exception("There was a failure updating the pull request.")
 
 
-def branch_api_request(
-        repo,
-        branch,
-        method,
-        postfix="/enforce_admins"):
-    """Make Requests to the github branch protection api
-        Not supported by github3.py yet (6/9/2017)"""
+def branch_api_request(repo, branch, method, postfix="", data=None):
+    """Make Requests to the github branch protection api.
+
+    Not supported by github3.py yet (6th September 2017)
+    """
     url = "{branch_url}/protection{postfix}".format(
         branch_url=repo.branches_urlt.expand(branch=branch),
         postfix=postfix
@@ -107,68 +115,158 @@ def branch_api_request(
     # Branch protection api is in preview and requires a specific content type
     response = repo._session.request(
         method, url,
-        headers={'Accept': 'application/vnd.github.loki-preview+json'})
+        headers={'Accept': 'application/vnd.github.loki-preview+json'},
+        data=data)
     return response
 
 
 @cli.command()
 @click.pass_context
 @click.option(
-    '--branch',
+    '--mainline',
     required=True,
-    help="Branch to set branch protection for."
+    help="Mainline branch to cut from"
 )
 @click.option(
-    '--admin-enforcement-enabled',
-    help="Enable or disable branch protection parameters for admins",
-    type=click.Choice(["True", "False"]),
-    required=True
+    '--rc',
+    required=True,
+    help="Release Candidate branch (re)create"
 )
-def set_admin_enforcement(ctx, branch, admin_enforcement_enabled):
-    repo = ctx.obj
-    if admin_enforcement_enabled == "True":
-        method = "POST"
-    else:
-        method = "DELETE"
+def update_rc_branch(ctx, mainline, rc):
+    """Update rc branch.
 
-    if ctx.invoke(get_branch_protection, branch=branch):
-        print ("Setting branch protection admin"
-               " encforcement to {} ".format(admin_enforcement_enabled))
-        branch_api_request(repo, branch, method).raise_for_status()
-        ctx.invoke(get_admin_enforcement, branch=branch)
-    else:
-        print ("Not modifying branch protection admin enforcement")
+    1. Store branch protection data
+    2. Delete rc branch
+    3. Create rc branch from head of mainline
+    4. Enable branch protection with skeleton or previously stored settings.
+
+    return codes:
+        0: OK
+        1: Unknown Failures
+        2: Usage Error
+        5: RC branch without branch protection detected.
+    """
+    try:
+        repo = ctx.obj
+        return_code = 0
+        branch_protection_enabled = False
+
+        # check if branch exists
+        if rc in (b.name for b in repo.iter_branches()):
+            logger.debug("Branch {} exists".format(rc))
+            # rc branch exists
+            branch_protection_response = branch_api_request(repo, rc, 'GET')
+            if branch_protection_response.status_code == 200:
+                # rc branch exists and protection enabled
+                logger.debug("Branch {} has protection enabled".format(rc))
+                branch_protection_enabled = True
+                # disable branch protection
+                r = branch_api_request(repo, rc, 'DELETE')
+                r.raise_for_status()
+                logger.debug("Branch protection disabled")
+            elif branch_protection_response.status_code == 404:
+                # rc branch exists without protection
+                # set a return_code so that jenkins can notify the RE team
+                # of a branch protection violation.
+                return_code = 5
+                print ("Warning: Branch: {} exists but does not have"
+                       " branch protection enabled.".format(rc))
+            else:
+                # failure retrieving branch protection status
+                branch_protection_response.raise_for_status()
+
+            # Delete branch
+            r = repo._session.request(
+                'DELETE',
+                repo.git_refs_urlt.expand(sha="heads/{}".format(rc)))
+            r.raise_for_status()
+            logger.debug("Branch {} deleted".format(rc))
+
+        mainline_sha = repo.branch(mainline).commit.sha
+        logger.debug("Mainline SHA: {}".format(mainline_sha))
+
+        # create rc branch pointing at head of mainline
+        repo.create_ref("refs/heads/{}".format(rc), mainline_sha)
+        logger.debug("Branch {} created".format(rc))
+
+        # Skeleton branch protection data, used to protect a new branch.
+        protection_data = {
+            "required_status_checks": None,
+            "enforce_admins": True,
+            "required_pull_request_reviews": {
+                "dismissal_restrictions": {},
+                "dismiss_stale_reviews": False,
+                "require_code_owner_reviews": False
+            },
+            "restrictions": None
+        }
+
+        # Incorporate previous branch protection data if the branch was
+        # protected perviously
+        if branch_protection_enabled:
+            stored_bpd = branch_protection_response.json()
+            protection_data.update(stored_bpd)
+            # The github api returns enforce_admins as dict, but requires it to
+            # be sent as a bool.
+            protection_data['enforce_admins'] \
+                = stored_bpd['enforce_admins']['enabled']
+
+        # Enable branch protection
+        r = branch_api_request(repo, rc, 'PUT',
+                               data=json.dumps(protection_data))
+        r.raise_for_status()
+        logger.debug("Branch Protection enabled for branch {}".format(rc))
+
+        # Ensure the rc branch was not updated to anything else while it was
+        # unprotected. Stored mainline_sha is used incase mainline has
+        # moved on since the SHA was acquired.
+        assert mainline_sha == repo.branch(rc).commit.sha
+        logger.debug("rc branch update complete")
+    except Exception as e:
+        if return_code == 0:
+            return_code = 1
+        print "Failure Resetting RC branch: {}".format(e)
+    finally:
+        ctx.exit(return_code)
 
 
 @cli.command()
 @click.pass_obj
 @click.option(
-    '--branch',
+    '--version',
     required=True,
-    help="Branch to query"
+    help="version to release"
 )
-def get_admin_enforcement(repo, branch):
-    response = branch_api_request(repo, branch, 'GET')
-    response.raise_for_status()
-    print response.json()
-
-
-@cli.command()
-@click.pass_obj
 @click.option(
-    '--branch',
+    '--ref',
     required=True,
-    help="Branch to query"
+    help="Reference to create release from (branch, SHA etc)"
 )
-def get_branch_protection(repo, branch):
-    response = branch_api_request(repo, branch, 'GET', postfix="")
-    if response.status_code == 200:
-        print "Branch Protection Enabled"
-        print json.dumps(response.json(), indent=4)
-        return True
-    else:
-        print "Branch Protection Disabled"
-        return False
+@click.option(
+    '--body',
+    required=True,
+    type=click.File('r'),
+    help="File containing release message body"
+)
+def create_release(repo, version, ref, body):
+    try:
+        repo.create_release(
+            version,            # tag name
+            ref,                # tag reference
+            version,            # release name
+            body.read()         # release body
+        )
+        print "Release {} created.".format(version)
+    except github3.models.GitHubError as e:
+        print "Error creating release: {}".format(e)
+        if e.code == 422:
+            print "Failed to create release, tag already exists?"
+            raise SystemExit(5)
+        if e.code == 404:
+            print "Failed to create release, Jenkins lacks repo perms?"
+            raise SystemExit(6)
+        else:
+            raise e
 
 
 if __name__ == "__main__":
