@@ -120,6 +120,7 @@ def prepare() {
           ) //run_script
         } //timeout
       } // dir
+      sh "scp -o StrictHostKeyChecking=no /root/.ssh/authorized_keys infra1:/root/.ssh"
     } //stage
   ) //conditionalStage
 
