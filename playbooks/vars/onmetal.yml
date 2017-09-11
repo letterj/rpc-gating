@@ -11,7 +11,3 @@ gating_overrides:
   tempest_testr_opts:
     - '--concurrency 3'
   tempest_run_tempest_opts: []
-  # The MNAIO tool gives different VMs different amounts of RAM, but seeing as
-  # our OnMetal machines have ample RAM we bump this across the board for all
-  # VMs
-  server_vm_ram: 16384

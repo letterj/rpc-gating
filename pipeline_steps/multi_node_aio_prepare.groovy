@@ -92,6 +92,10 @@ def prepare() {
         sh "git checkout ${env.OSA_OPS_BRANCH}"
       }
       dir("openstack-ansible-ops/${env.MULTI_NODE_AIO_DIR}") {
+        // The multi-node-aio tool is quite modest when it comes to allocating
+        // RAM to VMs -- since we have RAM to spare we double that assigned to
+        // infra nodes.
+        sh "sed -i 's/server_vm_ram: 8192/server_vm_ram: 16384/g' playbooks/host_vars/infra*.yml"
         timeout(time: 45, unit: "MINUTES") {
           add_nodes()
           env.MNAIO_ENTITIES = maas.get_mnaio_entity_names()
