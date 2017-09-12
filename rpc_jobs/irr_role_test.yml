@@ -25,6 +25,7 @@
       - mitaka
       - liberty
       - kilo
+      - ceph
     exclude:
       # NOTE(cloudnull): At present the logstash role only gates on master.
       - repo: rpc-role-logstash
